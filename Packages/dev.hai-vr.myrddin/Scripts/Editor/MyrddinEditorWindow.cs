@@ -6,7 +6,6 @@ namespace Hai.Myrddin
 {
     public class MyrddinEditorWindow : EditorWindow
     {
-        
         private Vector2 _scrollPos;
 
         private void OnGUI()
@@ -17,6 +16,15 @@ namespace Hai.Myrddin
             if (ColoredBackground(isEnabled, Color.red, () => GUILayout.Button(isEnabled ? "Killswitch is ON" : "Killswitch is OFF")))
             {
                 MyrddinKillswitch.UseKillswitch = !isEnabled;
+            }
+
+            if (isEnabled)
+            {
+                EditorGUILayout.HelpBox(@"Killswitch is ON. Udon is suspended.
+- UdonSharpBehaviours execute as C# MonoBehaviours.
+- UdonManager is disabled.
+- Udon Graphs and CyanTrigger are not operational.
+- Use `#if !COMPILER_UDONSHARP` to execute non-Udon code.", MessageType.Warning);
             }
             
             EditorGUILayout.EndScrollView();

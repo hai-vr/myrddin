@@ -3,7 +3,8 @@
   "references": [
     "UdonSharp.Editor",
     "UdonSharp.Runtime",
-    "VRC.Udon"
+    "VRC.Udon",
+    "SingularityGroup.HotReload.Runtime.Public"
   ],
   "includePlatforms": [
     "Editor"
@@ -15,6 +16,11 @@
   "autoReferenced": true,
   "defineConstraints": [],
   "versionDefines": [
+    {
+      "name": "com.singularitygroup.hotreload",
+      "expression": "",
+      "define": "MYRDDIN_HOT_RELOAD_EXISTS"
+    }
   ],
   "noEngineReferences": false
 }

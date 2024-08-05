@@ -21,6 +21,10 @@ namespace Hai.Myrddin
             {
                 PlayerPrefs.SetInt($"Hai.Myrddin.{nameof(UseKillswitch)}", value ? 1 : 0);
                 EnsureScriptingDefineIsSetTo(value);
+                
+                // Unfortunately, this can't be changed live, because U# registers the Harmony patches after post-assembly refresh.
+                // Maybe there's another way.
+                // UpdateKillswitch();
             }
         }
 
@@ -32,25 +36,40 @@ namespace Hai.Myrddin
         private static readonly Harmony Harm;
         private static readonly Dictionary<string, HijackGetAxisFunction> AxisNameToHijackFn = new Dictionary<string, HijackGetAxisFunction>();
         private static readonly Dictionary<UdonBehaviour, UdonSharpBehaviour> BehaviourCache = new Dictionary<UdonBehaviour, UdonSharpBehaviour>();
+        private static readonly List<MemorizedPatch> RememberPatches = new List<MemorizedPatch>();
         public delegate float HijackGetAxisFunction(string axisName);
         
         private static int _disableUdonManagerAttempt;
         private static FieldInfo _backingUdonBehaviourField;
+        private static bool _prevKillswitch;
 
         static MyrddinKillswitch()
         {
-            if (!UseKillswitch)
-            {
-                EnsureScriptingDefineIsSetTo(false);
-                Debug.Log("(MyrddinKillswitch) Killswitch is OFF.");
-                return;
-            }
-            
-            EnsureScriptingDefineIsSetTo(true);
-            Debug.Log("(MyrddinKillswitch) Killswitch is ON.");
-            
             Harm = new Harmony(HarmonyIdentifier);
+            
+            EnsureScriptingDefineIsSetTo(UseKillswitch);
 
+            UpdateKillswitch();
+        }
+
+        private static void UpdateKillswitch()
+        {
+            var currentKillswitch = UseKillswitch;
+            if (currentKillswitch == _prevKillswitch) return;
+            _prevKillswitch = currentKillswitch;
+            
+            if (currentKillswitch)
+            {
+                EnableHooks();
+            }
+            else
+            {
+                DisableHooks();
+            }
+        }
+
+        private static void EnableHooks()
+        {
             PreventUdonSharpFromMutingNativeBehaviours();
             PreventUdonSharpFromAffectingPlayModeEntry();
             RedirectUiEventsToUdonBehaviour();
@@ -58,7 +77,38 @@ namespace Hai.Myrddin
             
             EditorApplication.playModeStateChanged -= DisableUdonManager;
             EditorApplication.playModeStateChanged += DisableUdonManager;
+            
+            Debug.Log("(MyrddinKillswitch) Killswitch is ON.");
         }
+
+        private static void DisableHooks()
+        {
+            foreach (var memorizedPatch in RememberPatches)
+            {
+                Harm.Unpatch(memorizedPatch.Source, memorizedPatch.Destination.method);
+            }
+            RememberPatches.Clear();
+            
+            EditorApplication.playModeStateChanged -= DisableUdonManager;
+            
+            Debug.Log("(MyrddinKillswitch) Killswitch is OFF.");
+        }
+
+#if MYRDDIN_HOT_RELOAD_EXISTS
+        [SingularityGroup.HotReload.InvokeOnHotReload]
+        [UsedImplicitly]
+        public static void HandleMethodPatches()
+        {
+            return;
+            
+            Debug.Log("(MyrddinKillswitch) Hot reload detected, re-applying patches...");
+            if (UseKillswitch)
+            {
+                DisableHooks();
+                EnableHooks();
+            }
+        }
+#endif
 
         private static void EnsureScriptingDefineIsSetTo(bool isActive)
         {
@@ -96,7 +146,7 @@ namespace Hai.Myrddin
             var theMethodThatMutesNativeBehaviours = udonSharpToPatch.GetMethod("RunPostAssemblyBuildRefresh", BindingFlags.Static | BindingFlags.NonPublic);
             var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(PreventExecutionMuteBehaviours));
             
-            Harm.Patch(theMethodThatMutesNativeBehaviours, new HarmonyMethod(ourPatch));
+            DoPatch(theMethodThatMutesNativeBehaviours, new HarmonyMethod(ourPatch));
         }
 
         private static void PreventUdonSharpFromAffectingPlayModeEntry()
@@ -105,7 +155,7 @@ namespace Hai.Myrddin
             var theMethodThatAffectsPlayModeEntry = udonSharpToPatch.GetMethod("OnChangePlayMode", BindingFlags.Static | BindingFlags.NonPublic);
             var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(PreventExecutionPlayModeEntry));
             
-            Harm.Patch(theMethodThatAffectsPlayModeEntry, new HarmonyMethod(ourPatch));
+            DoPatch(theMethodThatAffectsPlayModeEntry, new HarmonyMethod(ourPatch));
         }
 
         private static void RedirectUiEventsToUdonBehaviour()
@@ -136,7 +186,7 @@ namespace Hai.Myrddin
             var ourType = typeof(MyrddinKillswitch);
             foreach (var from in thingsToPatch)
             {
-                Harm.Patch(toPatch.GetMethod(from), new HarmonyMethod(ourType.GetMethod($"{ReflectionPrefix}{from}")));
+                DoPatch(toPatch.GetMethod(from), new HarmonyMethod(ourType.GetMethod($"{ReflectionPrefix}{from}")));
             }
         }
 
@@ -146,7 +196,18 @@ namespace Hai.Myrddin
             var getAxisMethod = inputToPatch.GetMethod(nameof(Input.GetAxis), BindingFlags.Static | BindingFlags.Public);
             var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(HijackGetAxis));
             
-            Harm.Patch(getAxisMethod, new HarmonyMethod(ourPatch));
+            DoPatch(getAxisMethod, new HarmonyMethod(ourPatch));
+        }
+
+        private static void DoPatch(MethodInfo source, HarmonyMethod destination)
+        {
+            Harm.Patch(source, destination);
+            
+            RememberPatches.Add(new MemorizedPatch
+            {
+                Source = source,
+                Destination = destination
+            });
         }
 
         public static bool PreventExecutionMuteBehaviours()
@@ -176,8 +237,13 @@ namespace Hai.Myrddin
         {
             if (BehaviourCache.TryGetValue(behaviour, out var cachedResult))
             {
-                found = cachedResult;
-                return true;
+                if (cachedResult != null) // Can happen when hot reloads are involved
+                {
+                    found = cachedResult;
+                    return true;
+                }
+
+                BehaviourCache.Remove(behaviour);
             }
             
             var sharpies = behaviour.transform.GetComponents<UdonSharpBehaviour>();
@@ -248,8 +314,15 @@ namespace Hai.Myrddin
             manager.enabled = false;
             Debug.Log("(MyrddinKillswitch) UdonManager has been disabled.");
             
+            // FIXME: We need to run PostLateUpdate on UdonSharpBehaviour
             var plu = UnityEngine.Object.FindObjectOfType<PostLateUpdater>();
             if (plu != null) plu.enabled = false;
+        }
+        
+        private struct MemorizedPatch
+        {
+            internal MethodInfo Source;
+            internal HarmonyMethod Destination;
         }
     }
 }
