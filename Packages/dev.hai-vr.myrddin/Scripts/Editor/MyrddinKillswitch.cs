@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Reflection;
 using HarmonyLib;
+using UdonSharp;
 using UnityEditor;
 using UnityEngine;
 using VRC.Udon;
@@ -13,12 +14,14 @@ public class MyrddinKillswitch
     private const string HarmonyIdentifier = "dev.hai-vr.myrddin.Harmony";
     
     private static int _attempt;
+    private static FieldInfo _backingField;
 
     static MyrddinKillswitch()
     {
         Harm = new Harmony(HarmonyIdentifier);
 
         PreventUdonSharpFromMutingNativeBehaviours();
+        RedirectUiEventsToUdonBehaviour();
         
         EditorApplication.playModeStateChanged -= DisableUdonManager;
         EditorApplication.playModeStateChanged += DisableUdonManager;
@@ -33,10 +36,38 @@ public class MyrddinKillswitch
         Harm.Patch(theMethodThatMutesNativeBehaviours, new HarmonyMethod(ourPatch));
     }
 
+    private static void RedirectUiEventsToUdonBehaviour()
+    {
+        var udonSharp = typeof(UdonBehaviour);
+        var sendCustomEventMethod = udonSharp.GetMethod("SendCustomEvent");
+        
+        _backingField = typeof(UdonSharpBehaviour).GetField("_udonSharpBackingUdonBehaviour", BindingFlags.Instance | BindingFlags.NonPublic);
+        var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(RedirectEvent));
+        
+        Harm.Patch(sendCustomEventMethod, new HarmonyMethod(ourPatch));
+    }
+
     public static bool PreventExecution()
     {
         Debug.Log("(MyrddinKillswitch) Prevented UdonSharpEditorManager from muting behaviours.");
         return false;
+    }
+
+    public static bool RedirectEvent(UdonBehaviour __instance, string eventName)
+    {
+        var sharpies = __instance.transform.GetComponents<UdonSharpBehaviour>();
+        foreach (var udonSharpBehaviour in sharpies)
+        {
+            var corresponding = (UdonBehaviour)_backingField.GetValue(udonSharpBehaviour);
+            if (corresponding == __instance)
+            {
+                Debug.Log($"(MyrddinKillswitch) Redirecting SendCustomEvent({eventName}) to {udonSharpBehaviour.GetType().FullName}.");
+                udonSharpBehaviour.SendCustomEvent(eventName);
+                return false;
+            }
+        }
+        Debug.Log("(MyrddinKillswitch) Failed to redirect SendCustomEvent targeted to UdonBehaviour back to its UdonSharpBehaviour.");
+        return true;
     }
 
     private static Type HackGetTypeByName(string typeName)

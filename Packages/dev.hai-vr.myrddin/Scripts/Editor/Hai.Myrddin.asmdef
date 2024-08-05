@@ -2,6 +2,7 @@
   "name": "Hai.Myrddin",
   "references": [
     "UdonSharp.Editor",
+    "UdonSharp.Runtime",
     "VRC.Udon"
   ],
   "includePlatforms": [
