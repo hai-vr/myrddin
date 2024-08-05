@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using HarmonyLib;
+using JetBrains.Annotations;
 using UdonSharp;
 using UnityEditor;
 using UnityEngine;
@@ -13,12 +14,24 @@ namespace Hai.Myrddin
     [InitializeOnLoad]
     public class MyrddinKillswitch
     {
+        public static bool UseKillswitch
+        {
+            get => PlayerPrefs.GetInt($"Hai.Myrddin.{nameof(UseKillswitch)}") > 0;
+            set
+            {
+                PlayerPrefs.SetInt($"Hai.Myrddin.{nameof(UseKillswitch)}", value ? 1 : 0);
+                EnsureScriptingDefineIsSetTo(value);
+            }
+        }
+
         private const string HarmonyIdentifier = "dev.hai-vr.myrddin.Harmony";
         private const string EditorManager = "UdonSharpEditor.UdonSharpEditorManager";
         private const string ScriptingDefineForMyrddinActive = "MYRDDIN_ACTIVE";
+        private const string ReflectionPrefix = "__";
 
         private static readonly Harmony Harm;
         private static readonly Dictionary<string, HijackGetAxisFunction> AxisNameToHijackFn = new Dictionary<string, HijackGetAxisFunction>();
+        private static readonly Dictionary<UdonBehaviour, UdonSharpBehaviour> BehaviourCache = new Dictionary<UdonBehaviour, UdonSharpBehaviour>();
         public delegate float HijackGetAxisFunction(string axisName);
         
         private static int _disableUdonManagerAttempt;
@@ -26,6 +39,16 @@ namespace Hai.Myrddin
 
         static MyrddinKillswitch()
         {
+            if (!UseKillswitch)
+            {
+                EnsureScriptingDefineIsSetTo(false);
+                Debug.Log("(MyrddinKillswitch) Killswitch is OFF.");
+                return;
+            }
+            
+            EnsureScriptingDefineIsSetTo(true);
+            Debug.Log("(MyrddinKillswitch) Killswitch is ON.");
+            
             Harm = new Harmony(HarmonyIdentifier);
 
             PreventUdonSharpFromMutingNativeBehaviours();
@@ -35,14 +58,29 @@ namespace Hai.Myrddin
             
             EditorApplication.playModeStateChanged -= DisableUdonManager;
             EditorApplication.playModeStateChanged += DisableUdonManager;
-            
+        }
+
+        private static void EnsureScriptingDefineIsSetTo(bool isActive)
+        {
             var group = BuildPipeline.GetBuildTargetGroup(EditorUserBuildSettings.activeBuildTarget);
             var degenSymbols = PlayerSettings.GetScriptingDefineSymbolsForGroup(group);
             var symbols = new List<string>(degenSymbols.Split(";"));
-            if (!symbols.Contains(ScriptingDefineForMyrddinActive))
+            if (isActive)
             {
-                symbols.Add(ScriptingDefineForMyrddinActive);
-                var newDegenSymbols = string.Join(',', symbols);
+                if (!symbols.Contains(ScriptingDefineForMyrddinActive))
+                {
+                    symbols.Add(ScriptingDefineForMyrddinActive);
+                    var newDegenSymbols = string.Join(';', symbols);
+                    PlayerSettings.SetScriptingDefineSymbolsForGroup(group, newDegenSymbols);
+                }
+            }
+            else
+            {
+                while (symbols.Contains(ScriptingDefineForMyrddinActive))
+                {
+                    symbols.Remove(ScriptingDefineForMyrddinActive);
+                }
+                var newDegenSymbols = string.Join(';', symbols);
                 PlayerSettings.SetScriptingDefineSymbolsForGroup(group, newDegenSymbols);
             }
         }
@@ -72,13 +110,34 @@ namespace Hai.Myrddin
 
         private static void RedirectUiEventsToUdonBehaviour()
         {
-            var udonBehaviourToPatch = typeof(UdonBehaviour);
-            var sendCustomEventMethod = udonBehaviourToPatch.GetMethod(nameof(UdonBehaviour.SendCustomEvent));
-            
             _backingUdonBehaviourField = typeof(UdonSharpBehaviour).GetField("_udonSharpBackingUdonBehaviour", BindingFlags.Instance | BindingFlags.NonPublic);
-            var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(RedirectEvent));
+
+            var methodsToPatch = typeof(MyrddinKillswitch).GetMethods()
+                .Where(info => info.Name.StartsWith(ReflectionPrefix))
+                .Select(info => info.Name.Substring(ReflectionPrefix.Length))
+                .ToArray();
             
-            Harm.Patch(sendCustomEventMethod, new HarmonyMethod(ourPatch));
+            PatchThese(methodsToPatch);
+        }
+
+        // ReSharper disable InconsistentNaming
+        // All methods here starting with __ (which is ReflectionPrefix) will be found through reflection and wired to the corresponding UdonBehaviour method. 
+        [UsedImplicitly] public static bool __SendCustomEvent(UdonBehaviour __instance, string eventName) => Execute(__instance, behaviour => behaviour.SendCustomEvent(eventName));
+        [UsedImplicitly] public static bool __Interact(UdonBehaviour __instance) => Execute(__instance, behaviour => behaviour.Interact());
+        [UsedImplicitly] public static bool __OnPickup(UdonBehaviour __instance) => Execute(__instance, behaviour => behaviour.OnPickup());
+        [UsedImplicitly] public static bool __OnDrop(UdonBehaviour __instance) => Execute(__instance, behaviour => behaviour.OnDrop());
+        [UsedImplicitly] public static bool __OnPickupUseDown(UdonBehaviour __instance) => Execute(__instance, behaviour => behaviour.OnPickupUseDown());
+        [UsedImplicitly] public static bool __OnPickupUseUp(UdonBehaviour __instance) => Execute(__instance, behaviour => behaviour.OnPickupUseUp());
+        // ReSharper restore InconsistentNaming
+
+        private static void PatchThese(string[] thingsToPatch)
+        {
+            var toPatch = typeof(UdonBehaviour);
+            var ourType = typeof(MyrddinKillswitch);
+            foreach (var from in thingsToPatch)
+            {
+                Harm.Patch(toPatch.GetMethod(from), new HarmonyMethod(ourType.GetMethod($"{ReflectionPrefix}{from}")));
+            }
         }
 
         private static void HijackInputGetAxis()
@@ -102,21 +161,39 @@ namespace Hai.Myrddin
             return false;
         }
 
-        public static bool RedirectEvent(UdonBehaviour __instance, string eventName)
+        public static bool Execute(UdonBehaviour __instance, Action<UdonSharpBehaviour> doFn)
         {
-            var sharpies = __instance.transform.GetComponents<UdonSharpBehaviour>();
+            if (TryGetUdonSharpBehaviour(__instance, out var udonSharpBehaviour))
+            {
+                doFn.Invoke(udonSharpBehaviour);
+                return false; // Reminder: This is a Harmony patching method. false prevents the original UdonBehaviour from executing
+            }
+            
+            return true;
+        }
+
+        private static bool TryGetUdonSharpBehaviour(UdonBehaviour behaviour, out UdonSharpBehaviour found)
+        {
+            if (BehaviourCache.TryGetValue(behaviour, out var cachedResult))
+            {
+                found = cachedResult;
+                return true;
+            }
+            
+            var sharpies = behaviour.transform.GetComponents<UdonSharpBehaviour>();
             foreach (var udonSharpBehaviour in sharpies)
             {
                 var corresponding = (UdonBehaviour)_backingUdonBehaviourField.GetValue(udonSharpBehaviour);
-                if (corresponding == __instance)
+                if (corresponding == behaviour)
                 {
-                    Debug.Log($"(MyrddinKillswitch) Redirecting SendCustomEvent({eventName}) to {udonSharpBehaviour.GetType().FullName}.");
-                    udonSharpBehaviour.SendCustomEvent(eventName);
-                    return false;
+                    BehaviourCache[behaviour] = udonSharpBehaviour;
+                    found = udonSharpBehaviour;
+                    return true;
                 }
             }
-            Debug.Log("(MyrddinKillswitch) Failed to redirect SendCustomEvent targeted to UdonBehaviour back to its UdonSharpBehaviour.");
-            return true;
+
+            found = null;
+            return false;
         }
 
         // ReSharper disable once InconsistentNaming
