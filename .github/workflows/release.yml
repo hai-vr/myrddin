@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 env:
-  packageName: "dev.hai-vr.myrddin"
+  packageName: "dev.hai-vr.myrddin.core"
 
 permissions:
   contents: write
