@@ -2,14 +2,17 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using Hai.Myrddin.Runtime;
 using HarmonyLib;
 using JetBrains.Annotations;
 using UdonSharp;
+using UdonSharp.Compiler;
+using UdonSharpEditor;
 using UnityEditor;
 using UnityEngine;
 using VRC.Udon;
 
-namespace Hai.Myrddin
+namespace Hai.Myrddin.Editor
 {
     [InitializeOnLoad]
     public class MyrddinKillswitch
@@ -26,6 +29,11 @@ namespace Hai.Myrddin
                 // Maybe there's another way.
                 // UpdateKillswitch();
             }
+        }
+        public static bool ClientSimVR
+        {
+            get => PlayerPrefs.GetInt($"Hai.Myrddin.{nameof(ClientSimVR)}") > 0;
+            set => PlayerPrefs.SetInt($"Hai.Myrddin.{nameof(ClientSimVR)}", value ? 1 : 0);
         }
 
         private const string HarmonyIdentifier = "dev.hai-vr.myrddin.Harmony";
@@ -45,6 +53,7 @@ namespace Hai.Myrddin
 
         static MyrddinKillswitch()
         {
+            Debug.Log("(MyrddinKillswitch) Executing static initializer.");
             Harm = new Harmony(HarmonyIdentifier);
             
             EnsureScriptingDefineIsSetTo(UseKillswitch);
@@ -72,13 +81,30 @@ namespace Hai.Myrddin
         {
             PreventUdonSharpFromMutingNativeBehaviours();
             PreventUdonSharpFromAffectingPlayModeEntry();
+            // PreventUdonSharpFromPostProcessingScene();
+            // PreventUdonSharpCompilerFromDetectingPlayMode();
+            // PreventCustomUdonSharpDrawerFromRegistering();
+            PrevenUdonSharpFromCopyingUdonToProxy();
             RedirectUiEventsToUdonBehaviour();
             HijackInputGetAxis();
+            RegisterGetAxis();
             
             EditorApplication.playModeStateChanged -= DisableUdonManager;
             EditorApplication.playModeStateChanged += DisableUdonManager;
             
             Debug.Log("(MyrddinKillswitch) Killswitch is ON.");
+        }
+
+        private static void RegisterGetAxis()
+        {
+            RegisterInputGetAxisFunction("Oculus_CrossPlatform_PrimaryIndexTrigger", _ => MyrddinInput.LeftTrigger);
+            RegisterInputGetAxisFunction("Oculus_CrossPlatform_SecondaryIndexTrigger", _ => MyrddinInput.RightTrigger);
+            RegisterInputGetAxisFunction("Oculus_CrossPlatform_PrimaryHandTrigger", _ => MyrddinInput.LeftGrip);
+            RegisterInputGetAxisFunction("Oculus_CrossPlatform_SecondaryHandTrigger", _ => MyrddinInput.RightGrip);
+            RegisterInputGetAxisFunction("Oculus_CrossPlatform_PrimaryThumbstickHorizontal", _ => MyrddinInput.LeftAxisX);
+            RegisterInputGetAxisFunction("Oculus_CrossPlatform_PrimaryThumbstickVertical", _ => MyrddinInput.LeftAxisY);
+            RegisterInputGetAxisFunction("Oculus_CrossPlatform_SecondaryThumbstickHorizontal", _ => MyrddinInput.RightAxisX);
+            RegisterInputGetAxisFunction("Oculus_CrossPlatform_SecondaryThumbstickVertical", _ => MyrddinInput.RightAxisY);
         }
 
         private static void DisableHooks()
@@ -158,6 +184,43 @@ namespace Hai.Myrddin
             DoPatch(theMethodThatAffectsPlayModeEntry, new HarmonyMethod(ourPatch));
         }
 
+        private static void PreventUdonSharpFromPostProcessingScene()
+        {
+            var udonSharpToPatch = HackGetTypeByName(EditorManager);
+            var theMethodThatIsCalledOnSceneBuild = udonSharpToPatch.GetMethod("OnSceneBuildInternal", BindingFlags.Static | BindingFlags.NonPublic);
+            var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(PreventExecutionSceneBuild));
+            
+            DoPatch(theMethodThatIsCalledOnSceneBuild, new HarmonyMethod(ourPatch));
+        }
+
+        private static void PreventUdonSharpCompilerFromDetectingPlayMode()
+        {
+            var udonSharpToPatch = typeof(UdonSharpCompilerV1);
+            var theMethodThatIsCalledOnPlayMode = udonSharpToPatch.GetMethod("OnPlayStateChanged", BindingFlags.Static | BindingFlags.NonPublic);
+            var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(PreventExecutionCompilerPlayMode));
+            
+            DoPatch(theMethodThatIsCalledOnPlayMode, new HarmonyMethod(ourPatch));
+        }
+
+        private static void PreventCustomUdonSharpDrawerFromRegistering()
+        {
+            var udonSharpToPatch = HackGetTypeByName("UdonSharpEditor.UdonBehaviourDrawerOverride");
+            var theMethodThatIsCalledOnPlayMode = udonSharpToPatch.GetMethod("OverrideUdonBehaviourDrawer", BindingFlags.Static | BindingFlags.NonPublic);
+            var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(PreventCustomUdonSharpDrawer));
+            
+            DoPatch(theMethodThatIsCalledOnPlayMode, new HarmonyMethod(ourPatch));
+        }
+
+        private static void PrevenUdonSharpFromCopyingUdonToProxy()
+        {
+            var udonSharpToPatch = HackGetTypeByName("UdonSharpEditor.UdonSharpEditorUtility");
+            Type[] types = new Type[] { typeof(UdonSharpBehaviour), typeof(ProxySerializationPolicy) };
+            var theMethodThatIsCalledOnPlayMode = udonSharpToPatch.GetMethod("CopyUdonToProxy", types);
+            var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(PreventCopyingUdonToProxy));
+            
+            DoPatch(theMethodThatIsCalledOnPlayMode, new HarmonyMethod(ourPatch));
+        }
+
         private static void RedirectUiEventsToUdonBehaviour()
         {
             _backingUdonBehaviourField = typeof(UdonSharpBehaviour).GetField("_udonSharpBackingUdonBehaviour", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -219,6 +282,39 @@ namespace Hai.Myrddin
         public static bool PreventExecutionPlayModeEntry()
         {
             Debug.Log("(MyrddinKillswitch) Prevented UdonSharpEditorManager from affecting play mode entry.");
+            return false;
+        }
+
+        // FIXME: Probably not needed.
+        public static bool PreventExecutionSceneBuild(bool isBuildingPlayer)
+        {
+            Debug.Log("(MyrddinKillswitch) Prevented UdonSharpEditorManager from doing operations on scene build.");
+            return false;
+        }
+
+        // FIXME: Probably not needed.
+        public static bool PreventExecutionCompilerPlayMode(PlayModeStateChange stateChange)
+        {
+            Debug.Log("(MyrddinKillswitch) Prevented UdonSharpCompilerV1 from doing operations on entering Play mode.");
+            return false;
+        }
+
+        // FIXME: Probably no longer needed, it was the wrong issue (see PreventCopyingUdonToProxy).
+        public static bool PreventCustomUdonSharpDrawer()
+        {
+            // FIXME: The comment below is no longer true.
+            // This spams errors when in Killswitch mode.
+            Debug.Log("(MyrddinKillswitch) Prevented custom UdonSharp drawer from registering.");
+            return false;
+        }
+
+        public static bool PreventCopyingUdonToProxy(UdonSharpBehaviour proxy, ProxySerializationPolicy serializationPolicy)
+        {
+            // We need to prevent copying Udon to Proxy, because it copies null values from the runtime UdonBehaviour.
+            
+            // This is called a lot, so do not log.
+            // Debug.Log("(MyrddinKillswitch) Prevented copying Udon to Proxy.");
+            
             return false;
         }
 

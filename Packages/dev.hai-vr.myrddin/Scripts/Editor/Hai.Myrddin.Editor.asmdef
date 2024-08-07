@@ -1,10 +1,11 @@
 ﻿{
-  "name": "Hai.Myrddin",
+  "name": "Hai.Myrddin.Editor",
   "references": [
     "UdonSharp.Editor",
     "UdonSharp.Runtime",
     "VRC.Udon",
-    "SingularityGroup.HotReload.Runtime.Public"
+    "SingularityGroup.HotReload.Runtime.Public",
+    "Hai.Myrddin.Runtime"
   ],
   "includePlatforms": [
     "Editor"

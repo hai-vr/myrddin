@@ -2,7 +2,7 @@
 using UnityEditor;
 using UnityEngine;
 
-namespace Hai.Myrddin
+namespace Hai.Myrddin.Editor
 {
     public class MyrddinEditorWindow : EditorWindow
     {
@@ -17,6 +17,8 @@ namespace Hai.Myrddin
             {
                 MyrddinKillswitch.UseKillswitch = !isEnabled;
             }
+            
+            MyrddinKillswitch.ClientSimVR = EditorGUILayout.Toggle("ClientSim VR", MyrddinKillswitch.ClientSimVR);
 
             if (isEnabled)
             {

@@ -1,0 +1,18 @@
+﻿{
+  "name": "Hai.Myrddin.Runtime",
+  "references": [
+    "UdonSharp.Runtime",
+    "VRC.Udon",
+    "VRC.ClientSim",
+    "Unity.InputSystem"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}
