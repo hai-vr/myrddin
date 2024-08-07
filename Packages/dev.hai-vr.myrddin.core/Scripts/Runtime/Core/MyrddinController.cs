@@ -2,7 +2,7 @@
 using UnityEngine;
 using UnityEngine.XR;
 
-namespace Hai.Myrddin.Runtime
+namespace Hai.Myrddin.Core.Runtime
 {
     // https://docs.unity3d.com/Manual/xr_input.html
     public class MyrddinController : MonoBehaviour

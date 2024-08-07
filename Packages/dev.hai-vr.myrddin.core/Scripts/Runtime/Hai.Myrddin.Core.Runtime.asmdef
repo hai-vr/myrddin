@@ -1,5 +1,5 @@
 ﻿{
-  "name": "Hai.Myrddin.Runtime",
+  "name": "Hai.Myrddin.Core.Runtime",
   "references": [
     "UdonSharp.Runtime",
     "VRC.Udon",

@@ -2,7 +2,7 @@
 using VRC.SDK3.ClientSim;
 using VRC.Udon.Common;
 
-namespace Hai.Myrddin.Runtime
+namespace Hai.Myrddin.Core.Runtime
 {
     public class MyrddinUpdateCoordinator : MonoBehaviour
     {

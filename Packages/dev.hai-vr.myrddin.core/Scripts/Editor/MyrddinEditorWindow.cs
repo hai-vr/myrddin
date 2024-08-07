@@ -2,7 +2,7 @@
 using UnityEditor;
 using UnityEngine;
 
-namespace Hai.Myrddin.Editor
+namespace Hai.Myrddin.Core.Editor
 {
     public class MyrddinEditorWindow : EditorWindow
     {

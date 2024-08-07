@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using Hai.Myrddin.Runtime;
+using Hai.Myrddin.Core.Runtime;
 using HarmonyLib;
 using JetBrains.Annotations;
 using UdonSharp;
@@ -12,7 +12,7 @@ using UnityEditor;
 using UnityEngine;
 using VRC.Udon;
 
-namespace Hai.Myrddin.Editor
+namespace Hai.Myrddin.Core.Editor
 {
     [InitializeOnLoad]
     public class MyrddinKillswitch

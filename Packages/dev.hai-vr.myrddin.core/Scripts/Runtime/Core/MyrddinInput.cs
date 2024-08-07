@@ -1,4 +1,4 @@
-﻿namespace Hai.Myrddin.Runtime
+﻿namespace Hai.Myrddin.Core.Runtime
 {
     public class MyrddinInput
     {
