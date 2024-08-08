@@ -79,7 +79,7 @@ namespace Hai.Myrddin.Core.Editor
                         var paths = string.Join('\n', programToObjects.Value
                             .Select(obj => AnimationUtility.CalculateTransformPath(obj.transform, null)));
 
-                        EditorGUILayout.HelpBox($"The program {programToObjects.Key.name} is not UdonSharp, so it will not run:\n{paths}", MessageType.Warning);
+                        EditorGUILayout.HelpBox($"{programToObjects.Key.name} is not an UdonSharp program, so it will not run:\n{paths}", MessageType.Warning);
                     }
                 }
             }
