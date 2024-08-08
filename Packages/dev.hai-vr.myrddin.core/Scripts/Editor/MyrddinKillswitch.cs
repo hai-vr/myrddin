@@ -99,7 +99,10 @@ namespace Hai.Myrddin.Core.Editor
             // EditorApplication.playModeStateChanged += InjectOrRemovePostLateUpdatePatch;
             HijackInputGetAxis();
             RegisterGetAxis();
-            
+            PatchEnteringStationsUsesExecutionContextMagic();
+            // TODO: We need to patch ClientSimUdonHelper.OnStationEnter & Exit,
+            // TODO: or rewire events sent to UdonBehaviour.RunEvent to UdonSharpBehaviour
+
             EditorApplication.playModeStateChanged -= DisableUdonManager;
             EditorApplication.playModeStateChanged += DisableUdonManager;
             
@@ -128,6 +131,27 @@ namespace Hai.Myrddin.Core.Editor
             RegisterInputGetAxisFunction("Oculus_CrossPlatform_PrimaryThumbstickVertical", _ => MyrddinInput.LeftAxisY);
             RegisterInputGetAxisFunction("Oculus_CrossPlatform_SecondaryThumbstickHorizontal", _ => MyrddinInput.RightAxisX);
             RegisterInputGetAxisFunction("Oculus_CrossPlatform_SecondaryThumbstickVertical", _ => MyrddinInput.RightAxisY);
+        }
+
+        private static void PatchEnteringStationsUsesExecutionContextMagic()
+        {
+            // VRCPlayerApi.UseAttachedStation() is a zero-argument function that uses the Udon execution context to retrieve which UdonBehaviour is invoking it.
+            // There is no known way to get the instance of callers in the stack.
+            
+            VRCPlayerApi._UseAttachedStation += UseAttachedStation;
+            MyrddinHelpers._stationFix += sharp =>
+            {
+                var station = sharp.GetComponent<VRCStation>();
+                if (station != null)
+                {
+                    ClientSimStationHelper.UseStation(station, Networking.LocalPlayer);
+                }
+            };
+        }
+
+        private static void UseAttachedStation(VRCPlayerApi caller)
+        {
+            Debug.Log("(MyrddinKillswitch) VRCPlayerApi.UseAttachedStation was called. This is not implemented.");
         }
 
         private static void DisableHooks()
