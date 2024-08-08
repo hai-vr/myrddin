@@ -93,8 +93,8 @@ namespace Hai.Myrddin.Core.Editor
             HijackInputGetAxis();
             RegisterGetAxis();
             PatchEnteringStationsUsesExecutionContextMagic();
-            // TODO: We need to patch ClientSimUdonHelper.OnStationEnter & Exit,
-            // TODO: or rewire events sent to UdonBehaviour.RunEvent to UdonSharpBehaviour
+            // TODO: Should we rewire events sent to UdonBehaviour.RunEvent to UdonSharpBehaviour, instead of patching ClientSimUdonHelper?
+            PatchClientSimStationEvents();
 
             EditorApplication.playModeStateChanged -= DisableUdonManager;
             EditorApplication.playModeStateChanged += DisableUdonManager;
@@ -119,7 +119,7 @@ namespace Hai.Myrddin.Core.Editor
             // VRCPlayerApi.UseAttachedStation() is a zero-argument function that uses the Udon execution context to retrieve which UdonBehaviour is invoking it.
             // There is no known way to get the instance of callers in the stack.
             
-            VRCPlayerApi._UseAttachedStation += UseAttachedStation;
+            VRCPlayerApi._UseAttachedStation += ShowMessageThatUseAttachedStationIsUnsupported;
             MyrddinHelpers._stationFix += sharp =>
             {
                 var station = sharp.GetComponent<VRCStation>();
@@ -130,9 +130,55 @@ namespace Hai.Myrddin.Core.Editor
             };
         }
 
-        private static void UseAttachedStation(VRCPlayerApi caller)
+        private static void ShowMessageThatUseAttachedStationIsUnsupported(VRCPlayerApi caller)
         {
             Debug.Log("(MyrddinKillswitch) VRCPlayerApi.UseAttachedStation was called. This is not implemented.");
+            // TODO: Add message to ask calling MyrddinHelpers.UseStation(this) instead.
+        }
+
+        private static void PatchClientSimStationEvents()
+        {
+            // During normal operation, ClientSim calls RunEvent on the UdonBehaviour to trigger entering and exiting stations.
+            // We patch the method that invokes RunEvent within ClientSim, and call the corresponding UdonSharpBehaviour methods instead.
+            
+            var clientSimHelperToPatch = typeof(ClientSimUdonHelper);
+            
+            {
+                var stationMethod = clientSimHelperToPatch.GetMethod(nameof(ClientSimUdonHelper.OnStationEnter));
+                var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(PatchOnStationEnter));
+            
+                DoPatch(stationMethod, new HarmonyMethod(ourPatch));
+            }
+            {
+                var stationMethod = clientSimHelperToPatch.GetMethod(nameof(ClientSimUdonHelper.OnStationExit));
+                var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(PatchOnStationExit));
+            
+                DoPatch(stationMethod, new HarmonyMethod(ourPatch));
+            }
+        }
+
+        // ReSharper disable once InconsistentNaming
+        // ReSharper disable once RedundantNameQualifier
+        public static bool PatchOnStationEnter(ClientSimUdonHelper __instance, VRC.SDKBase.VRCStation station)
+        {
+            var udonBehaviour = __instance.GetUdonBehaviour();
+            if (MyrddinBehaviourCache.TryGetUdonSharpBehaviour(udonBehaviour, out var found))
+            {
+                found.OnStationEntered(Networking.LocalPlayer);
+            }
+            return false;
+        }
+
+        // ReSharper disable once InconsistentNaming
+        // ReSharper disable once RedundantNameQualifier
+        public static bool PatchOnStationExit(ClientSimUdonHelper __instance, VRC.SDKBase.VRCStation station)
+        {
+            var udonBehaviour = __instance.GetUdonBehaviour();
+            if (MyrddinBehaviourCache.TryGetUdonSharpBehaviour(udonBehaviour, out var found))
+            {
+                found.OnStationExited(Networking.LocalPlayer);
+            }
+            return false;
         }
 
         private static void EnsureScriptingDefineIsSetTo(bool isActive)
