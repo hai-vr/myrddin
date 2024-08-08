@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -7,7 +6,6 @@ using Hai.Myrddin.Core.Runtime;
 using HarmonyLib;
 using JetBrains.Annotations;
 using UdonSharp;
-using UdonSharp.Compiler;
 using UdonSharpEditor;
 using UnityEditor;
 using UnityEngine;
@@ -51,7 +49,6 @@ namespace Hai.Myrddin.Core.Editor
 
         private static readonly Harmony Harm;
         private static readonly Dictionary<string, HijackGetAxisFunction> AxisNameToHijackFn = new Dictionary<string, HijackGetAxisFunction>();
-        private static readonly List<MemorizedPatch> RememberPatches = new List<MemorizedPatch>();
         public delegate float HijackGetAxisFunction(string axisName);
         
         private static int _disableUdonManagerAttempt;
@@ -78,7 +75,7 @@ namespace Hai.Myrddin.Core.Editor
             }
             else
             {
-                DisableHooks();
+                Debug.Log("(MyrddinKillswitch) Killswitch is OFF.");
             }
         }
 
@@ -86,8 +83,6 @@ namespace Hai.Myrddin.Core.Editor
         {
             PreventUdonSharpFromMutingNativeBehaviours();
             PreventUdonSharpFromAffectingPlayModeEntry();
-            // PreventUdonSharpFromPostProcessingScene();
-            // PreventUdonSharpCompilerFromDetectingPlayMode();
             PreventCustomUdonSharpDrawerFromRegistering();
             PreventUdonSharpFromCopyingUdonToProxy();
             // FIXME: When building a world, this needs to be restored prior to the build.
@@ -95,8 +90,6 @@ namespace Hai.Myrddin.Core.Editor
             
             RedirectUiEventsToUdonBehaviour();
             ImplementDelaysInUdonSharpBehaviour();
-            // EditorApplication.playModeStateChanged -= InjectOrRemovePostLateUpdatePatch;
-            // EditorApplication.playModeStateChanged += InjectOrRemovePostLateUpdatePatch;
             HijackInputGetAxis();
             RegisterGetAxis();
             PatchEnteringStationsUsesExecutionContextMagic();
@@ -107,18 +100,6 @@ namespace Hai.Myrddin.Core.Editor
             EditorApplication.playModeStateChanged += DisableUdonManager;
             
             Debug.Log("(MyrddinKillswitch) Killswitch is ON.");
-        }
-
-        private static void InjectOrRemovePostLateUpdatePatch(PlayModeStateChange obj)
-        {
-            if (obj == PlayModeStateChange.ExitingEditMode)
-            {
-                DetectNewUdonSharpBehavioursThatNeedPostLateUpdate__ThroughConstructor();
-            }
-            else if (obj == PlayModeStateChange.ExitingPlayMode)
-            {
-                RemovePostLateUpdatePatch();
-            }
         }
 
         private static void RegisterGetAxis()
@@ -153,35 +134,6 @@ namespace Hai.Myrddin.Core.Editor
         {
             Debug.Log("(MyrddinKillswitch) VRCPlayerApi.UseAttachedStation was called. This is not implemented.");
         }
-
-        private static void DisableHooks()
-        {
-            foreach (var memorizedPatch in RememberPatches)
-            {
-                Harm.Unpatch(memorizedPatch.Source, memorizedPatch.Destination.method);
-            }
-            RememberPatches.Clear();
-            
-            EditorApplication.playModeStateChanged -= DisableUdonManager;
-            
-            Debug.Log("(MyrddinKillswitch) Killswitch is OFF.");
-        }
-
-#if MYRDDIN_HOT_RELOAD_EXISTS
-        [SingularityGroup.HotReload.InvokeOnHotReload]
-        [UsedImplicitly]
-        public static void HandleMethodPatches()
-        {
-            return;
-            
-            Debug.Log("(MyrddinKillswitch) Hot reload detected, re-applying patches...");
-            if (UseKillswitch)
-            {
-                DisableHooks();
-                EnableHooks();
-            }
-        }
-#endif
 
         private static void EnsureScriptingDefineIsSetTo(bool isActive)
         {
@@ -238,24 +190,6 @@ namespace Hai.Myrddin.Core.Editor
             var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(PatchExecutionPlayModeEntry));
             
             DoPatch(theMethodThatAffectsPlayModeEntry, new HarmonyMethod(ourPatch));
-        }
-
-        private static void PreventUdonSharpFromPostProcessingScene()
-        {
-            var udonSharpToPatch = HackGetTypeByName(EditorManager);
-            var theMethodThatIsCalledOnSceneBuild = udonSharpToPatch.GetMethod("OnSceneBuildInternal", BindingFlags.Static | BindingFlags.NonPublic);
-            var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(PatchExecutionSceneBuild));
-            
-            DoPatch(theMethodThatIsCalledOnSceneBuild, new HarmonyMethod(ourPatch));
-        }
-
-        private static void PreventUdonSharpCompilerFromDetectingPlayMode()
-        {
-            var udonSharpToPatch = typeof(UdonSharpCompilerV1);
-            var theMethodThatIsCalledOnPlayMode = udonSharpToPatch.GetMethod("OnPlayStateChanged", BindingFlags.Static | BindingFlags.NonPublic);
-            var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(PatchExecutionCompilerPlayMode));
-            
-            DoPatch(theMethodThatIsCalledOnPlayMode, new HarmonyMethod(ourPatch));
         }
 
         private static void PreventCustomUdonSharpDrawerFromRegistering()
@@ -364,64 +298,12 @@ namespace Hai.Myrddin.Core.Editor
                 {
                     DoPatch(typeToPatch.GetMethod(ourPatch.Name.Substring(prefix.Length), ourPatch.GetParameters().Select(info => info.ParameterType).Skip(1).ToArray()), new HarmonyMethod(ourPatch));
                 }
-                catch (Exception e)
+                catch (Exception _)
                 {
                     Debug.LogError($"(MyrddinKillswitch) Failed to patch {ourPatch}");
                     throw;
                 }
             }
-        }
-        
-        private static void DetectNewUdonSharpBehavioursThatNeedPostLateUpdate__ThroughConstructor()
-        {
-            // UNUSED: This partially works, but not on some objects when the scene starts. Not sure why.
-            // Since it's in the constructor, it's also a pain because:
-            // - the UdonSharp compiler will choke on the Harmony patch,
-            // - you can't call anything from within the constructor to itself, so it's harder to get the object name and stuff.
-            //
-            // For now, see the reflective __OnEnable patch on UdonBehaviour
-            
-            var sharpTypes = AllTypesThatExtendUdonSharpBehaviour();
-            var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(PatchForLateUpdate));
-
-            foreach (var sharpTypeToPatch in sharpTypes)
-            {
-                var constructorMethod = GetConstructor(sharpTypeToPatch);
-                
-                // This is a postfix patch.
-                Harm.Patch(constructorMethod, postfix: new HarmonyMethod(ourPatch));
-            }
-        }
-
-        private static void RemovePostLateUpdatePatch()
-        {
-            var sharpTypes = AllTypesThatExtendUdonSharpBehaviour();
-
-            foreach (var sharpTypeToPatch in sharpTypes)
-            {
-                var constructorMethod = GetConstructor(sharpTypeToPatch);
-                Harm.Unpatch(constructorMethod, HarmonyPatchType.Postfix, HarmonyIdentifier);
-            }
-        }
-
-        private static MethodBase GetConstructor(Type sharpTypeToPatch)
-        {
-            return (MethodBase)sharpTypeToPatch.GetMember(".ctor", AccessTools.all)[0];
-        }
-
-        private static Type[] AllTypesThatExtendUdonSharpBehaviour()
-        {
-            return AppDomain.CurrentDomain.GetAssemblies()
-                .SelectMany(assembly => assembly.GetTypes())
-                .Where(t => typeof(UdonSharpBehaviour).IsAssignableFrom(t))
-                .ToArray();
-        }
-
-        public static void PatchForLateUpdate(object __instance)
-        {
-            // Reminder: Due to a hack, we're in a constructor call. Don't invoke random stuff, like getting the name.
-            
-            MyrddinPostLateUpdateExecutor.OnNewUdonSharpBehaviourIntroduced((UdonSharpBehaviour)__instance);
         }
 
         private static void HijackInputGetAxis()
@@ -436,12 +318,8 @@ namespace Hai.Myrddin.Core.Editor
         private static void DoPatch(MethodInfo source, HarmonyMethod destination)
         {
             Harm.Patch(source, destination);
-            
-            RememberPatches.Add(new MemorizedPatch
-            {
-                Source = source,
-                Destination = destination
-            });
+            // We used to do other stuff here when patching methods, such as remembering what was patched. 
+            // This is no longer done, so this could be inlined.
         }
 
         public static bool PatchExecutionMuteBehaviours()
@@ -532,6 +410,7 @@ I hate that it’s an asset"
             return true;
         }
 
+        // ReSharper disable once InconsistentNaming
         private static bool RunSharp(UdonBehaviour __instance, Action<UdonSharpBehaviour> doFn)
         {
             if (MyrddinBehaviourCache.TryGetUdonSharpBehaviour(__instance, out var udonSharpBehaviour))
@@ -604,12 +483,6 @@ I hate that it’s an asset"
                 // TODO: MyrddinPostLateUpdateExecutor requires a UdonBehaviour to exist. This may cause issues if UdonSharpBehaviours are instantiated directly?
                 plu.gameObject.AddComponent<MyrddinPostLateUpdateExecutor>();
             }
-        }
-        
-        private struct MemorizedPatch
-        {
-            internal MethodInfo Source;
-            internal HarmonyMethod Destination;
         }
     }
 }
