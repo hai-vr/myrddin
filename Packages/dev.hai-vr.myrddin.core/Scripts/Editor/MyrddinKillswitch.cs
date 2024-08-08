@@ -184,6 +184,9 @@ namespace Hai.Myrddin.Core.Editor
 
         private static void PreventUdonSharpFromMutingNativeBehaviours()
         {
+            // During normal operation, UdonSharp will mute all UdonSharpBehaviour events, so that those of the UdonBehaviour will execute instead.
+            // We want to prevent this from happening, so that the native code will execute instead.
+            
             var udonSharpToPatch = HackGetTypeByName(EditorManager);
             var theMethodThatMutesNativeBehaviours = udonSharpToPatch.GetMethod("RunPostAssemblyBuildRefresh", BindingFlags.Static | BindingFlags.NonPublic);
             var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(PatchExecutionMuteBehaviours));
@@ -193,6 +196,12 @@ namespace Hai.Myrddin.Core.Editor
 
         private static void PreventUdonSharpFromAffectingPlayModeEntry()
         {
+            // During normal operation, UdonSharp will prevent entry to Play mode if there are errors in UdonSharp files.
+            // We want to allow errors to exist in UdonSharp files, as we want the native implementation to run instead.
+            //
+            // (If there are errors as seen by the UdonSharp, the creator will have to fix them during normal operation)
+            // (The creator can also use #if !COMPILER_UDONSHARP to execute native-specific code)
+            
             var udonSharpToPatch = HackGetTypeByName(EditorManager);
             var theMethodThatAffectsPlayModeEntry = udonSharpToPatch.GetMethod("OnChangePlayMode", BindingFlags.Static | BindingFlags.NonPublic);
             var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(PatchExecutionPlayModeEntry));
@@ -220,6 +229,11 @@ namespace Hai.Myrddin.Core.Editor
 
         private static void PreventCustomUdonSharpDrawerFromRegistering()
         {
+            // TODO: I'm not sure if this is still needed, or if this is the correct solution.
+            // During normal operation, UdonSharp will draw an inspector that reflects the values and types of the actual UdonBehaviour.
+            // We are trying to prevent this, because the UdonBehaviour state will not be in sync (fields/program variables might not match),
+            // and it would have caused a lot of errors to be printed.
+            
             var udonSharpToPatch = HackGetTypeByName("UdonSharpEditor.UdonBehaviourDrawerOverride");
             var theMethodThatIsCalledOnPlayMode = udonSharpToPatch.GetMethod("OverrideUdonBehaviourDrawer", BindingFlags.Static | BindingFlags.NonPublic);
             var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(PatchCustomUdonSharpDrawer));
@@ -229,6 +243,9 @@ namespace Hai.Myrddin.Core.Editor
 
         private static void PreventUdonSharpFromCopyingUdonToProxy()
         {
+            // During normal operation, UdonSharp will copy program variables from the UdonBehaviour to the UdonSharpBehaviour.
+            // We need to prevent this, because it copies null values from the runtime UdonBehaviour.
+            
             var udonSharpToPatch = HackGetTypeByName("UdonSharpEditor.UdonSharpEditorUtility");
             Type[] types = new Type[] { typeof(UdonSharpBehaviour), typeof(ProxySerializationPolicy) };
             var theMethodThatIsCalledOnPlayMode = udonSharpToPatch.GetMethod("CopyUdonToProxy", types);
@@ -384,16 +401,12 @@ namespace Hai.Myrddin.Core.Editor
         // Might still cause errors when fields are added or removed if this isn't running.
         public static bool PatchCustomUdonSharpDrawer()
         {
-            // FIXME: The comment below is no longer true.
-            // This spams errors when in Killswitch mode.
             Debug.Log("(MyrddinKillswitch) Prevented custom UdonSharp drawer from registering.");
             return false;
         }
 
         public static bool PatchCopyingUdonToProxy(UdonSharpBehaviour proxy, ProxySerializationPolicy serializationPolicy)
         {
-            // We need to prevent copying Udon to Proxy, because it copies null values from the runtime UdonBehaviour.
-            
             // This is called a lot, so do not log.
             // Debug.Log("(MyrddinKillswitch) Prevented copying Udon to Proxy.");
             
