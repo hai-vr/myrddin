@@ -70,15 +70,22 @@ namespace Hai.Myrddin.Core.Runtime
         private void CopyCameraSpaceToAvatarSpace()
         {
             CopyTransform(cameraSpace, avatarSpace);
-            CopyTransform(viewpointRepresentation, avatarSpaceViewpoint);
-            CopyTransform(leftController, avatarSpaceLeft);
-            CopyTransform(rightController, avatarSpaceRight);
+            CopyTransformLocal(viewpointRepresentation, avatarSpaceViewpoint);
+            CopyTransformLocal(leftController, avatarSpaceLeft);
+            CopyTransformLocal(rightController, avatarSpaceRight);
         }
 
         private void CopyTransform(Transform from, Transform to)
         {
             to.transform.position = from.transform.position;
             to.transform.rotation = from.transform.rotation;
+            to.transform.localScale = from.transform.localScale;
+        }
+
+        private void CopyTransformLocal(Transform from, Transform to)
+        {
+            to.transform.localPosition = from.transform.localPosition;
+            to.transform.localRotation = from.transform.localRotation;
             to.transform.localScale = from.transform.localScale;
         }
     }
