@@ -90,6 +90,8 @@ namespace Hai.Myrddin.Core.Editor
             PreventVRChatEnvConfigFromSettingOculusLoaderAsTheXRPluginProvider();
             
             RedirectUiEventsToUdonBehaviour();
+            // EditorApplication.playModeStateChanged -= InjectOrRemovePostLateUpdatePatch;
+            // EditorApplication.playModeStateChanged += InjectOrRemovePostLateUpdatePatch;
             HijackInputGetAxis();
             RegisterGetAxis();
             
@@ -97,6 +99,18 @@ namespace Hai.Myrddin.Core.Editor
             EditorApplication.playModeStateChanged += DisableUdonManager;
             
             Debug.Log("(MyrddinKillswitch) Killswitch is ON.");
+        }
+
+        private static void InjectOrRemovePostLateUpdatePatch(PlayModeStateChange obj)
+        {
+            if (obj == PlayModeStateChange.ExitingEditMode)
+            {
+                DetectNewUdonSharpBehavioursThatNeedPostLateUpdate__ThroughConstructor();
+            }
+            else if (obj == PlayModeStateChange.ExitingPlayMode)
+            {
+                RemovePostLateUpdatePatch();
+            }
         }
 
         private static void RegisterGetAxis()
@@ -256,6 +270,10 @@ namespace Hai.Myrddin.Core.Editor
         [UsedImplicitly] public static bool __OnDrop(UdonBehaviour __instance) => RunSharp(__instance, sharp => sharp.OnDrop());
         [UsedImplicitly] public static bool __OnPickupUseDown(UdonBehaviour __instance) => RunSharp(__instance, sharp => sharp.OnPickupUseDown());
         [UsedImplicitly] public static bool __OnPickupUseUp(UdonBehaviour __instance) => RunSharp(__instance, sharp => sharp.OnPickupUseUp());
+        [UsedImplicitly] public static bool __OnEnable(UdonBehaviour __instance) => RunSharp(__instance, sharp =>
+        {
+            MyrddinPostLateUpdateExecutor.OnNewUdonSharpBehaviourIntroduced(sharp);
+        });
         // ReSharper restore InconsistentNaming
 
         private static void PatchThese(string[] thingsToPatch)
@@ -266,6 +284,58 @@ namespace Hai.Myrddin.Core.Editor
             {
                 DoPatch(toPatch.GetMethod(from), new HarmonyMethod(ourType.GetMethod($"{ReflectionPrefix}{from}")));
             }
+        }
+        
+        private static void DetectNewUdonSharpBehavioursThatNeedPostLateUpdate__ThroughConstructor()
+        {
+            // UNUSED: This partially works, but not on some objects when the scene starts. Not sure why.
+            // Since it's in the constructor, it's also a pain because:
+            // - the UdonSharp compiler will choke on the Harmony patch,
+            // - you can't call anything from within the constructor to itself, so it's harder to get the object name and stuff.
+            //
+            // For now, see the reflective __OnEnable patch on UdonBehaviour
+            
+            var sharpTypes = AllTypesThatExtendUdonSharpBehaviour();
+            var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(PatchForLateUpdate));
+
+            foreach (var sharpTypeToPatch in sharpTypes)
+            {
+                var constructorMethod = GetConstructor(sharpTypeToPatch);
+                
+                // This is a postfix patch.
+                Harm.Patch(constructorMethod, postfix: new HarmonyMethod(ourPatch));
+            }
+        }
+
+        private static void RemovePostLateUpdatePatch()
+        {
+            var sharpTypes = AllTypesThatExtendUdonSharpBehaviour();
+
+            foreach (var sharpTypeToPatch in sharpTypes)
+            {
+                var constructorMethod = GetConstructor(sharpTypeToPatch);
+                Harm.Unpatch(constructorMethod, HarmonyPatchType.Postfix, HarmonyIdentifier);
+            }
+        }
+
+        private static MethodBase GetConstructor(Type sharpTypeToPatch)
+        {
+            return (MethodBase)sharpTypeToPatch.GetMember(".ctor", AccessTools.all)[0];
+        }
+
+        private static Type[] AllTypesThatExtendUdonSharpBehaviour()
+        {
+            return AppDomain.CurrentDomain.GetAssemblies()
+                .SelectMany(assembly => assembly.GetTypes())
+                .Where(t => typeof(UdonSharpBehaviour).IsAssignableFrom(t))
+                .ToArray();
+        }
+
+        public static void PatchForLateUpdate(object __instance)
+        {
+            // Reminder: Due to a hack, we're in a constructor call. Don't invoke random stuff, like getting the name.
+            
+            MyrddinPostLateUpdateExecutor.OnNewUdonSharpBehaviourIntroduced((UdonSharpBehaviour)__instance);
         }
 
         private static void HijackInputGetAxis()
@@ -472,9 +542,14 @@ I hate that it’s an asset"
             manager.enabled = false;
             Debug.Log("(MyrddinKillswitch) UdonManager has been disabled.");
             
-            // FIXME: We need to run PostLateUpdate on UdonSharpBehaviour
             var plu = UnityEngine.Object.FindObjectOfType<PostLateUpdater>();
-            if (plu != null) plu.enabled = false;
+            if (plu != null)
+            {
+                plu.enabled = false;
+                
+                // TODO: MyrddinPostLateUpdateExecutor requires a UdonBehaviour to exist. This may cause issues if UdonSharpBehaviours are instantiated directly?
+                plu.gameObject.AddComponent<MyrddinPostLateUpdateExecutor>();
+            }
         }
         
         private struct MemorizedPatch
