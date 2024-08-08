@@ -490,6 +490,7 @@ I hate that it’s an asset"
             
             EditorApplication.update -= TryDisableUdonManager;
 
+            // Reminder that ClientSim does not need to be enabled. UdonManager is supposed to create itself no matter what.
             var manager = UnityEngine.Object.FindObjectOfType<UdonManager>();
             if (manager == null)
             {
