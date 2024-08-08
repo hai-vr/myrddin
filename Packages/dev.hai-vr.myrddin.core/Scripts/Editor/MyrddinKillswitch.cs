@@ -10,6 +10,7 @@ using UdonSharp.Compiler;
 using UdonSharpEditor;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.XR.Management;
 using VRC.Udon;
 
 namespace Hai.Myrddin.Core.Editor
@@ -84,7 +85,10 @@ namespace Hai.Myrddin.Core.Editor
             // PreventUdonSharpFromPostProcessingScene();
             // PreventUdonSharpCompilerFromDetectingPlayMode();
             // PreventCustomUdonSharpDrawerFromRegistering();
-            PrevenUdonSharpFromCopyingUdonToProxy();
+            PreventUdonSharpFromCopyingUdonToProxy();
+            // FIXME: When building a world, this needs to be restored prior to the build.
+            PreventVRChatEnvConfigFromSettingOculusLoaderAsTheXRPluginProvider();
+            
             RedirectUiEventsToUdonBehaviour();
             HijackInputGetAxis();
             RegisterGetAxis();
@@ -211,12 +215,22 @@ namespace Hai.Myrddin.Core.Editor
             DoPatch(theMethodThatIsCalledOnPlayMode, new HarmonyMethod(ourPatch));
         }
 
-        private static void PrevenUdonSharpFromCopyingUdonToProxy()
+        private static void PreventUdonSharpFromCopyingUdonToProxy()
         {
             var udonSharpToPatch = HackGetTypeByName("UdonSharpEditor.UdonSharpEditorUtility");
             Type[] types = new Type[] { typeof(UdonSharpBehaviour), typeof(ProxySerializationPolicy) };
             var theMethodThatIsCalledOnPlayMode = udonSharpToPatch.GetMethod("CopyUdonToProxy", types);
             var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(PreventCopyingUdonToProxy));
+            
+            DoPatch(theMethodThatIsCalledOnPlayMode, new HarmonyMethod(ourPatch));
+        }
+        
+        private static void PreventVRChatEnvConfigFromSettingOculusLoaderAsTheXRPluginProvider()
+        {
+            // In VRCSDK base EnvConfig.cs, line 1102, this effectively mutes that one specific call to XRPackageMetadataStore.AssignLoader
+            var classToPatch = HackGetTypeByName("UnityEditor.XR.Management.Metadata.XRPackageMetadataStore");
+            var theMethodThatIsCalledOnPlayMode = classToPatch.GetMethod("AssignLoader");
+            var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(PreventAssignLoaderFromSettingOculusLoader));
             
             DoPatch(theMethodThatIsCalledOnPlayMode, new HarmonyMethod(ourPatch));
         }
@@ -316,6 +330,52 @@ namespace Hai.Myrddin.Core.Editor
             // Debug.Log("(MyrddinKillswitch) Prevented copying Udon to Proxy.");
             
             return false;
+        }
+
+        public static bool PreventAssignLoaderFromSettingOculusLoader(XRManagerSettings settings, ref string loaderTypeName, BuildTargetGroup buildTargetGroup)
+        {
+            // FIXME: When building a world, this needs to be restored prior to the build.
+            /*
+- Q: "does anyone know why the fuck does the vrchat sdk base package needs to set the oculus loader as the XR provider every time the domain reloads?"
+- A: "It kept resetting for people so the SPS-I variants would stop building on android
+And on PC it gets enforced to be there so the spatialized gets added too otherwise things spam errors as well
+I hate that it’s an asset"
+            */
+            
+            if (loaderTypeName == "Unity.XR.Oculus.OculusLoader")
+            {
+                // In VRCSDK base EnvConfig.cs, line 1102, this effectively mutes calls similar to this to XRPackageMetadataStore.AssignLoader
+                
+                var trace = new System.Diagnostics.StackTrace();
+                var stackFrames = trace.GetFrames();
+                if (stackFrames != null)
+                {
+                    foreach (var frame in stackFrames)
+                    {
+                        var declaringType = frame.GetMethod().DeclaringType;
+                        if (declaringType != null && declaringType.FullName == "VRC.Editor.EnvConfig")
+                        {
+                            // FIXME: This is a really messy location to set this
+                            if (MyrddinKillswitch.ClientSimVR)
+                            {
+                                // FIXME: Is this the right location to set this?
+                                if (XRGeneralSettings.Instance)
+                                {
+                                    XRGeneralSettings.Instance.InitManagerOnStart = ClientSimVR;
+                                }
+                                
+                                Debug.Log("(MyrddinKillswitch) When setting XR Plugin Provider, replaced OculusLoader with OpenXR Loader.");
+                                loaderTypeName = "UnityEngine.XR.OpenXR.OpenXRLoader";
+                                return true;
+                            }
+                            
+                            Debug.Log("(MyrddinKillswitch) Prevented setting XR Plugin Provider to OculusLoader.");
+                            return false;
+                        }
+                    }
+                }
+            }
+            return true;
         }
 
         public static bool Execute(UdonBehaviour __instance, Action<UdonSharpBehaviour> doFn)

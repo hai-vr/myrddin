@@ -5,7 +5,9 @@
     "UdonSharp.Runtime",
     "VRC.Udon",
     "SingularityGroup.HotReload.Runtime.Public",
-    "Hai.Myrddin.Core.Runtime"
+    "Hai.Myrddin.Core.Runtime",
+    "Unity.XR.Management",
+    "Unity.XR.OpenXR"
   ],
   "includePlatforms": [
     "Editor"

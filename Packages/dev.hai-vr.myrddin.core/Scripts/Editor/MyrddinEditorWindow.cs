@@ -1,6 +1,9 @@
 ﻿using System;
+using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.XR.Management;
+using UnityEngine.XR.OpenXR;
 
 namespace Hai.Myrddin.Core.Editor
 {
@@ -17,8 +20,21 @@ namespace Hai.Myrddin.Core.Editor
             {
                 MyrddinKillswitch.UseKillswitch = !isEnabled;
             }
-            
-            MyrddinKillswitch.ClientSimVR = EditorGUILayout.Toggle("ClientSim VR", MyrddinKillswitch.ClientSimVR);
+
+            var currentClientSimVR = MyrddinKillswitch.ClientSimVR;
+            var newClientSimVR = EditorGUILayout.Toggle("ClientSim VR", MyrddinKillswitch.ClientSimVR);
+            if (currentClientSimVR != newClientSimVR)
+            {
+                MyrddinKillswitch.ClientSimVR = newClientSimVR;
+                XRGeneralSettings.Instance.InitManagerOnStart = newClientSimVR;
+
+                if (newClientSimVR)
+                {
+                    // TODO: Detect if OpenXR loader is installed, and ask to install it when it is not.
+                    var loaders = new List<XRLoader> { CreateInstance<OpenXRLoader>() };
+                    XRGeneralSettings.Instance.Manager.TrySetLoaders(loaders);
+                }
+            }
 
             if (isEnabled)
             {
@@ -55,7 +71,7 @@ namespace Hai.Myrddin.Core.Editor
         private static MyrddinEditorWindow Obtain()
         {
             var editor = GetWindow<MyrddinEditorWindow>(false, null, false);
-            editor.titleContent = new GUIContent("Myrddin Killswitch");
+            editor.titleContent = new GUIContent("Myrddin");
             return editor;
         }
     }
