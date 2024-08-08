@@ -33,11 +33,12 @@ namespace Hai.Myrddin.Core.Editor
         }
         public static bool ClientSimVR
         {
-            get => PlayerPrefs.GetInt($"Hai.Myrddin.{nameof(ClientSimVR)}") > 0;
-            set => PlayerPrefs.SetInt($"Hai.Myrddin.{nameof(ClientSimVR)}", value ? 1 : 0);
+            // This key used as a magic constant in MyrddinClientSimPatcher
+            get => PlayerPrefs.GetInt("Hai.Myrddin.ClientSimVR") > 0;
+            set => PlayerPrefs.SetInt("Hai.Myrddin.ClientSimVR", value ? 1 : 0);
         }
 
-        private const string HarmonyIdentifier = "dev.hai-vr.myrddin.Harmony";
+        private const string HarmonyIdentifier = "dev.hai-vr.myrddin.core.Harmony";
         private const string EditorManager = "UdonSharpEditor.UdonSharpEditorManager";
         private const string ScriptingDefineForMyrddinActive = "MYRDDIN_ACTIVE";
         private const string ReflectionPrefix = "__";
@@ -54,7 +55,6 @@ namespace Hai.Myrddin.Core.Editor
 
         static MyrddinKillswitch()
         {
-            Debug.Log("(MyrddinKillswitch) Executing static initializer.");
             Harm = new Harmony(HarmonyIdentifier);
             
             EnsureScriptingDefineIsSetTo(UseKillswitch);
@@ -174,7 +174,7 @@ namespace Hai.Myrddin.Core.Editor
         {
             var udonSharpToPatch = HackGetTypeByName(EditorManager);
             var theMethodThatMutesNativeBehaviours = udonSharpToPatch.GetMethod("RunPostAssemblyBuildRefresh", BindingFlags.Static | BindingFlags.NonPublic);
-            var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(PreventExecutionMuteBehaviours));
+            var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(PatchExecutionMuteBehaviours));
             
             DoPatch(theMethodThatMutesNativeBehaviours, new HarmonyMethod(ourPatch));
         }
@@ -183,7 +183,7 @@ namespace Hai.Myrddin.Core.Editor
         {
             var udonSharpToPatch = HackGetTypeByName(EditorManager);
             var theMethodThatAffectsPlayModeEntry = udonSharpToPatch.GetMethod("OnChangePlayMode", BindingFlags.Static | BindingFlags.NonPublic);
-            var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(PreventExecutionPlayModeEntry));
+            var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(PatchExecutionPlayModeEntry));
             
             DoPatch(theMethodThatAffectsPlayModeEntry, new HarmonyMethod(ourPatch));
         }
@@ -192,7 +192,7 @@ namespace Hai.Myrddin.Core.Editor
         {
             var udonSharpToPatch = HackGetTypeByName(EditorManager);
             var theMethodThatIsCalledOnSceneBuild = udonSharpToPatch.GetMethod("OnSceneBuildInternal", BindingFlags.Static | BindingFlags.NonPublic);
-            var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(PreventExecutionSceneBuild));
+            var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(PatchExecutionSceneBuild));
             
             DoPatch(theMethodThatIsCalledOnSceneBuild, new HarmonyMethod(ourPatch));
         }
@@ -201,7 +201,7 @@ namespace Hai.Myrddin.Core.Editor
         {
             var udonSharpToPatch = typeof(UdonSharpCompilerV1);
             var theMethodThatIsCalledOnPlayMode = udonSharpToPatch.GetMethod("OnPlayStateChanged", BindingFlags.Static | BindingFlags.NonPublic);
-            var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(PreventExecutionCompilerPlayMode));
+            var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(PatchExecutionCompilerPlayMode));
             
             DoPatch(theMethodThatIsCalledOnPlayMode, new HarmonyMethod(ourPatch));
         }
@@ -210,7 +210,7 @@ namespace Hai.Myrddin.Core.Editor
         {
             var udonSharpToPatch = HackGetTypeByName("UdonSharpEditor.UdonBehaviourDrawerOverride");
             var theMethodThatIsCalledOnPlayMode = udonSharpToPatch.GetMethod("OverrideUdonBehaviourDrawer", BindingFlags.Static | BindingFlags.NonPublic);
-            var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(PreventCustomUdonSharpDrawer));
+            var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(PatchCustomUdonSharpDrawer));
             
             DoPatch(theMethodThatIsCalledOnPlayMode, new HarmonyMethod(ourPatch));
         }
@@ -220,7 +220,7 @@ namespace Hai.Myrddin.Core.Editor
             var udonSharpToPatch = HackGetTypeByName("UdonSharpEditor.UdonSharpEditorUtility");
             Type[] types = new Type[] { typeof(UdonSharpBehaviour), typeof(ProxySerializationPolicy) };
             var theMethodThatIsCalledOnPlayMode = udonSharpToPatch.GetMethod("CopyUdonToProxy", types);
-            var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(PreventCopyingUdonToProxy));
+            var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(PatchCopyingUdonToProxy));
             
             DoPatch(theMethodThatIsCalledOnPlayMode, new HarmonyMethod(ourPatch));
         }
@@ -230,7 +230,7 @@ namespace Hai.Myrddin.Core.Editor
             // In VRCSDK base EnvConfig.cs, line 1102, this effectively mutes that one specific call to XRPackageMetadataStore.AssignLoader
             var classToPatch = HackGetTypeByName("UnityEditor.XR.Management.Metadata.XRPackageMetadataStore");
             var theMethodThatIsCalledOnPlayMode = classToPatch.GetMethod("AssignLoader");
-            var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(PreventAssignLoaderFromSettingOculusLoader));
+            var ourPatch = typeof(MyrddinKillswitch).GetMethod(nameof(PatchAssignLoaderFromSettingOculusLoader));
             
             DoPatch(theMethodThatIsCalledOnPlayMode, new HarmonyMethod(ourPatch));
         }
@@ -248,13 +248,14 @@ namespace Hai.Myrddin.Core.Editor
         }
 
         // ReSharper disable InconsistentNaming
-        // All methods here starting with __ (which is ReflectionPrefix) will be found through reflection and wired to the corresponding UdonBehaviour method. 
-        [UsedImplicitly] public static bool __SendCustomEvent(UdonBehaviour __instance, string eventName) => Execute(__instance, behaviour => behaviour.SendCustomEvent(eventName));
-        [UsedImplicitly] public static bool __Interact(UdonBehaviour __instance) => Execute(__instance, behaviour => behaviour.Interact());
-        [UsedImplicitly] public static bool __OnPickup(UdonBehaviour __instance) => Execute(__instance, behaviour => behaviour.OnPickup());
-        [UsedImplicitly] public static bool __OnDrop(UdonBehaviour __instance) => Execute(__instance, behaviour => behaviour.OnDrop());
-        [UsedImplicitly] public static bool __OnPickupUseDown(UdonBehaviour __instance) => Execute(__instance, behaviour => behaviour.OnPickupUseDown());
-        [UsedImplicitly] public static bool __OnPickupUseUp(UdonBehaviour __instance) => Execute(__instance, behaviour => behaviour.OnPickupUseUp());
+        // All methods here starting with __ (which is ReflectionPrefix) will be found through reflection and wired to the corresponding UdonBehaviour method.
+        // The literal "__instance" name is required by Harmony, do not change it.
+        [UsedImplicitly] public static bool __SendCustomEvent(UdonBehaviour __instance, string eventName) => RunSharp(__instance, sharp => sharp.SendCustomEvent(eventName));
+        [UsedImplicitly] public static bool __Interact(UdonBehaviour __instance) => RunSharp(__instance, sharp => sharp.Interact());
+        [UsedImplicitly] public static bool __OnPickup(UdonBehaviour __instance) => RunSharp(__instance, sharp => sharp.OnPickup());
+        [UsedImplicitly] public static bool __OnDrop(UdonBehaviour __instance) => RunSharp(__instance, sharp => sharp.OnDrop());
+        [UsedImplicitly] public static bool __OnPickupUseDown(UdonBehaviour __instance) => RunSharp(__instance, sharp => sharp.OnPickupUseDown());
+        [UsedImplicitly] public static bool __OnPickupUseUp(UdonBehaviour __instance) => RunSharp(__instance, sharp => sharp.OnPickupUseUp());
         // ReSharper restore InconsistentNaming
 
         private static void PatchThese(string[] thingsToPatch)
@@ -287,27 +288,27 @@ namespace Hai.Myrddin.Core.Editor
             });
         }
 
-        public static bool PreventExecutionMuteBehaviours()
+        public static bool PatchExecutionMuteBehaviours()
         {
             Debug.Log("(MyrddinKillswitch) Prevented UdonSharpEditorManager from muting behaviours.");
             return false;
         }
 
-        public static bool PreventExecutionPlayModeEntry()
+        public static bool PatchExecutionPlayModeEntry()
         {
             Debug.Log("(MyrddinKillswitch) Prevented UdonSharpEditorManager from affecting play mode entry.");
             return false;
         }
 
         // FIXME: Probably not needed.
-        public static bool PreventExecutionSceneBuild(bool isBuildingPlayer)
+        public static bool PatchExecutionSceneBuild(bool isBuildingPlayer)
         {
             Debug.Log("(MyrddinKillswitch) Prevented UdonSharpEditorManager from doing operations on scene build.");
             return false;
         }
 
         // FIXME: Probably not needed.
-        public static bool PreventExecutionCompilerPlayMode(PlayModeStateChange stateChange)
+        public static bool PatchExecutionCompilerPlayMode(PlayModeStateChange stateChange)
         {
             Debug.Log("(MyrddinKillswitch) Prevented UdonSharpCompilerV1 from doing operations on entering Play mode.");
             return false;
@@ -315,7 +316,7 @@ namespace Hai.Myrddin.Core.Editor
 
         // FIXME: Probably no longer needed, it was the wrong issue (see PreventCopyingUdonToProxy).
         // Might still cause errors when fields are added or removed if this isn't running.
-        public static bool PreventCustomUdonSharpDrawer()
+        public static bool PatchCustomUdonSharpDrawer()
         {
             // FIXME: The comment below is no longer true.
             // This spams errors when in Killswitch mode.
@@ -323,7 +324,7 @@ namespace Hai.Myrddin.Core.Editor
             return false;
         }
 
-        public static bool PreventCopyingUdonToProxy(UdonSharpBehaviour proxy, ProxySerializationPolicy serializationPolicy)
+        public static bool PatchCopyingUdonToProxy(UdonSharpBehaviour proxy, ProxySerializationPolicy serializationPolicy)
         {
             // We need to prevent copying Udon to Proxy, because it copies null values from the runtime UdonBehaviour.
             
@@ -333,7 +334,7 @@ namespace Hai.Myrddin.Core.Editor
             return false;
         }
 
-        public static bool PreventAssignLoaderFromSettingOculusLoader(XRManagerSettings settings, ref string loaderTypeName, BuildTargetGroup buildTargetGroup)
+        public static bool PatchAssignLoaderFromSettingOculusLoader(XRManagerSettings settings, ref string loaderTypeName, BuildTargetGroup buildTargetGroup)
         {
             // FIXME: When building a world, this needs to be restored prior to the build.
             /*
@@ -379,7 +380,7 @@ I hate that it’s an asset"
             return true;
         }
 
-        public static bool Execute(UdonBehaviour __instance, Action<UdonSharpBehaviour> doFn)
+        private static bool RunSharp(UdonBehaviour __instance, Action<UdonSharpBehaviour> doFn)
         {
             if (TryGetUdonSharpBehaviour(__instance, out var udonSharpBehaviour))
             {
