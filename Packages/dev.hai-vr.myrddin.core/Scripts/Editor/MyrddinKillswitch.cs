@@ -45,12 +45,10 @@ namespace Hai.Myrddin.Core.Editor
 
         private static readonly Harmony Harm;
         private static readonly Dictionary<string, HijackGetAxisFunction> AxisNameToHijackFn = new Dictionary<string, HijackGetAxisFunction>();
-        private static readonly Dictionary<UdonBehaviour, UdonSharpBehaviour> BehaviourCache = new Dictionary<UdonBehaviour, UdonSharpBehaviour>();
         private static readonly List<MemorizedPatch> RememberPatches = new List<MemorizedPatch>();
         public delegate float HijackGetAxisFunction(string axisName);
         
         private static int _disableUdonManagerAttempt;
-        private static FieldInfo _backingUdonBehaviourField;
         private static bool _prevKillswitch;
 
         static MyrddinKillswitch()
@@ -251,8 +249,6 @@ namespace Hai.Myrddin.Core.Editor
 
         private static void RedirectUiEventsToUdonBehaviour()
         {
-            _backingUdonBehaviourField = typeof(UdonSharpBehaviour).GetField("_udonSharpBackingUdonBehaviour", BindingFlags.Instance | BindingFlags.NonPublic);
-
             var methodsToPatch = typeof(MyrddinKillswitch).GetMethods()
                 .Where(info => info.Name.StartsWith(ReflectionPrefix))
                 .Select(info => info.Name.Substring(ReflectionPrefix.Length))
@@ -452,42 +448,13 @@ I hate that it’s an asset"
 
         private static bool RunSharp(UdonBehaviour __instance, Action<UdonSharpBehaviour> doFn)
         {
-            if (TryGetUdonSharpBehaviour(__instance, out var udonSharpBehaviour))
+            if (MyrddinBehaviourCache.TryGetUdonSharpBehaviour(__instance, out var udonSharpBehaviour))
             {
                 doFn.Invoke(udonSharpBehaviour);
                 return false; // Reminder: This is a Harmony patching method. false prevents the original UdonBehaviour from executing
             }
             
             return true;
-        }
-
-        private static bool TryGetUdonSharpBehaviour(UdonBehaviour behaviour, out UdonSharpBehaviour found)
-        {
-            if (BehaviourCache.TryGetValue(behaviour, out var cachedResult))
-            {
-                if (cachedResult != null) // Can happen when hot reloads are involved
-                {
-                    found = cachedResult;
-                    return true;
-                }
-
-                BehaviourCache.Remove(behaviour);
-            }
-            
-            var sharpies = behaviour.transform.GetComponents<UdonSharpBehaviour>();
-            foreach (var udonSharpBehaviour in sharpies)
-            {
-                var corresponding = (UdonBehaviour)_backingUdonBehaviourField.GetValue(udonSharpBehaviour);
-                if (corresponding == behaviour)
-                {
-                    BehaviourCache[behaviour] = udonSharpBehaviour;
-                    found = udonSharpBehaviour;
-                    return true;
-                }
-            }
-
-            found = null;
-            return false;
         }
 
         // ReSharper disable once InconsistentNaming
