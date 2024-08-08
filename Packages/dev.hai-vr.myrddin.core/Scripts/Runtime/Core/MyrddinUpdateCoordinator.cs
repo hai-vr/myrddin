@@ -20,7 +20,12 @@ namespace Hai.Myrddin.Core.Runtime
         public MyrddinController rightState;
 
         private const bool UseClientSim = true; // FIXME: Detect ClientSim usage if we want to bypass it.
-        private ClientSimInputBase inputBase;
+        private ClientSimInputBase _inputBase;
+
+        public void ProvideInputBase(ClientSimInputBase inputBase)
+        {
+            _inputBase = inputBase;
+        }
 
         private void Update()
         {
@@ -41,19 +46,20 @@ namespace Hai.Myrddin.Core.Runtime
 
             if (UseClientSim)
             {
-                var clientSimInput = FindInputBase();
+                // TODO: This shouldn't need to exist, because of ClientSimSystem's InputManager/ClientSimInputMapping (???)
+                // Haven't figured it out.
                 
-                if (leftState.GripJustPressed) clientSimInput.SendGrabEvent(true, HandType.LEFT);
-                if (rightState.GripJustPressed) clientSimInput.SendGrabEvent(true, HandType.RIGHT);
+                if (leftState.GripJustPressed) _inputBase.SendGrabEvent(true, HandType.LEFT);
+                if (rightState.GripJustPressed) _inputBase.SendGrabEvent(true, HandType.RIGHT);
                 
-                if (leftState.GripJustReleased) clientSimInput.SendGrabEvent(false, HandType.LEFT);
-                if (rightState.GripJustReleased) clientSimInput.SendGrabEvent(false, HandType.RIGHT);
+                if (leftState.GripJustReleased) _inputBase.SendGrabEvent(false, HandType.LEFT);
+                if (rightState.GripJustReleased) _inputBase.SendGrabEvent(false, HandType.RIGHT);
                 
-                if (leftState.TriggerJustPressed) clientSimInput.SendUseEvent(true, HandType.LEFT);
-                if (rightState.TriggerJustPressed) clientSimInput.SendUseEvent(true, HandType.RIGHT);
+                if (leftState.TriggerJustPressed) _inputBase.SendUseEvent(true, HandType.LEFT);
+                if (rightState.TriggerJustPressed) _inputBase.SendUseEvent(true, HandType.RIGHT);
                 
-                if (leftState.TriggerJustReleased) clientSimInput.SendUseEvent(false, HandType.LEFT);
-                if (rightState.TriggerJustReleased) clientSimInput.SendUseEvent(false, HandType.RIGHT);
+                if (leftState.TriggerJustReleased) _inputBase.SendUseEvent(false, HandType.LEFT);
+                if (rightState.TriggerJustReleased) _inputBase.SendUseEvent(false, HandType.RIGHT);
             }
             
             // TODO: Provide for Humanoid data? We need a small IK solver here.
@@ -74,31 +80,6 @@ namespace Hai.Myrddin.Core.Runtime
             to.transform.position = from.transform.position;
             to.transform.rotation = from.transform.rotation;
             to.transform.localScale = from.transform.localScale;
-        }
-
-        private ClientSimInputBase FindInputBase()
-        {
-            // FIXME: Figure out a way to inject this
-            if (inputBase == null)
-            {
-                var temp = new GameObject();
-                DontDestroyOnLoad(temp);
-                var rootGos = temp.scene.GetRootGameObjects();
-                Destroy(temp);
-                
-                foreach (var rootGo in rootGos)
-                {
-                    var inputManager = rootGo.GetComponentInChildren<ClientSimInputManager>(true);
-                    if (inputManager != null)
-                    {
-                        inputBase = inputManager.GetInput() as ClientSimInputBase;
-                        return inputBase;
-                    }
-                }
-                Debug.Log("(MyrddinUpdateCoordinator) Failed to get ClientSimInputBase. Is ClientSim running?");
-            }
-
-            return inputBase;
         }
     }
 }
