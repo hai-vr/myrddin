@@ -84,7 +84,7 @@ namespace Hai.Myrddin.Core.Editor
             PreventUdonSharpFromAffectingPlayModeEntry();
             // PreventUdonSharpFromPostProcessingScene();
             // PreventUdonSharpCompilerFromDetectingPlayMode();
-            // PreventCustomUdonSharpDrawerFromRegistering();
+            PreventCustomUdonSharpDrawerFromRegistering();
             PreventUdonSharpFromCopyingUdonToProxy();
             // FIXME: When building a world, this needs to be restored prior to the build.
             PreventVRChatEnvConfigFromSettingOculusLoaderAsTheXRPluginProvider();
@@ -314,6 +314,7 @@ namespace Hai.Myrddin.Core.Editor
         }
 
         // FIXME: Probably no longer needed, it was the wrong issue (see PreventCopyingUdonToProxy).
+        // Might still cause errors when fields are added or removed if this isn't running.
         public static bool PreventCustomUdonSharpDrawer()
         {
             // FIXME: The comment below is no longer true.
