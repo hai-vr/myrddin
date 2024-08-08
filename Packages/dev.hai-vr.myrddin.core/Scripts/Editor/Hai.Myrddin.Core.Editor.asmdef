@@ -8,7 +8,8 @@
     "SingularityGroup.HotReload.Runtime.Public",
     "Hai.Myrddin.Core.Runtime",
     "Unity.XR.Management",
-    "Unity.XR.OpenXR"
+    "Unity.XR.OpenXR",
+    "VRC.ClientSim"
   ],
   "includePlatforms": [
     "Editor"

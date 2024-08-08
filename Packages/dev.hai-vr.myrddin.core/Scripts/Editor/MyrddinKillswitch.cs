@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -11,7 +12,11 @@ using UdonSharpEditor;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.XR.Management;
+using VRC.SDK3.ClientSim;
+using VRC.SDKBase;
 using VRC.Udon;
+using VRC.Udon.Common.Enums;
+using VRC.Udon.Common.Interfaces;
 
 namespace Hai.Myrddin.Core.Editor
 {
@@ -42,6 +47,7 @@ namespace Hai.Myrddin.Core.Editor
         private const string EditorManager = "UdonSharpEditor.UdonSharpEditorManager";
         private const string ScriptingDefineForMyrddinActive = "MYRDDIN_ACTIVE";
         private const string ReflectionPrefix = "__";
+        private const string ImplementPrefix = "SharpFix__";
 
         private static readonly Harmony Harm;
         private static readonly Dictionary<string, HijackGetAxisFunction> AxisNameToHijackFn = new Dictionary<string, HijackGetAxisFunction>();
@@ -88,6 +94,7 @@ namespace Hai.Myrddin.Core.Editor
             PreventVRChatEnvConfigFromSettingOculusLoaderAsTheXRPluginProvider();
             
             RedirectUiEventsToUdonBehaviour();
+            ImplementDelaysInUdonSharpBehaviour();
             // EditorApplication.playModeStateChanged -= InjectOrRemovePostLateUpdatePatch;
             // EditorApplication.playModeStateChanged += InjectOrRemovePostLateUpdatePatch;
             HijackInputGetAxis();
@@ -268,16 +275,36 @@ namespace Hai.Myrddin.Core.Editor
         {
             var methodsToPatch = typeof(MyrddinKillswitch).GetMethods()
                 .Where(info => info.Name.StartsWith(ReflectionPrefix))
-                .Select(info => info.Name.Substring(ReflectionPrefix.Length))
                 .ToArray();
             
-            PatchThese(methodsToPatch);
+            PatchThese(methodsToPatch, ReflectionPrefix, typeof(UdonBehaviour));
+        }
+
+        private static void ImplementDelaysInUdonSharpBehaviour()
+        {
+            var methodsToPatch = typeof(MyrddinKillswitch).GetMethods()
+                .Where(info => info.Name.StartsWith(ImplementPrefix))
+                .ToArray();
+            
+            PatchThese(methodsToPatch, ImplementPrefix, typeof(UdonSharpBehaviour));
         }
 
         // ReSharper disable InconsistentNaming
         // All methods here starting with __ (which is ReflectionPrefix) will be found through reflection and wired to the corresponding UdonBehaviour method.
         // The literal "__instance" name is required by Harmony, do not change it.
         [UsedImplicitly] public static bool __SendCustomEvent(UdonBehaviour __instance, string eventName) => RunSharp(__instance, sharp => sharp.SendCustomEvent(eventName));
+        [UsedImplicitly] public static bool __SendCustomNetworkEvent(UdonBehaviour __instance, NetworkEventTarget target, string eventName) => RunSharp(__instance, sharp => sharp.SendCustomNetworkEvent(target, eventName));
+        [UsedImplicitly] public static bool __SendCustomEventDelayedSeconds(UdonBehaviour __instance, string eventName, float delaySeconds, EventTiming eventTiming) => RunSharp(__instance, sharp =>
+        {
+            // TODO: Event timing is not implemented within the coroutine runner
+            Debug.Log($"{__instance.name} is being sent custom event {eventName}, delayed by {delaySeconds} seconds (EVENT TIMING NOT IMPLEMENTED: {eventTiming})");
+            MyrddinCoroutineRunner.CreateForSeconds(sharp, eventName, delaySeconds, eventTiming);
+        });
+        [UsedImplicitly] public static bool __SendCustomEventDelayedFrames(UdonBehaviour __instance, string eventName, int delayFrames, EventTiming eventTiming) => RunSharp(__instance, sharp =>
+        {
+            Debug.Log($"{__instance.name} is being sent custom event {eventName}, delayed by {delayFrames} frames (EVENT TIMING NOT IMPLEMENTED: {eventTiming})");
+            MyrddinCoroutineRunner.CreateForFrames(sharp, eventName, delayFrames, eventTiming);
+        });
         [UsedImplicitly] public static bool __Interact(UdonBehaviour __instance) => RunSharp(__instance, sharp => sharp.Interact());
         [UsedImplicitly] public static bool __OnPickup(UdonBehaviour __instance) => RunSharp(__instance, sharp => sharp.OnPickup());
         [UsedImplicitly] public static bool __OnDrop(UdonBehaviour __instance) => RunSharp(__instance, sharp => sharp.OnDrop());
@@ -288,14 +315,36 @@ namespace Hai.Myrddin.Core.Editor
             MyrddinPostLateUpdateExecutor.OnNewUdonSharpBehaviourIntroduced(sharp);
         });
         // ReSharper restore InconsistentNaming
-
-        private static void PatchThese(string[] thingsToPatch)
+        
+        // ReSharper disable InconsistentNaming
+        // All methods here starting with SharpFix__ (which is ImplementPrefix) will be found through reflection and wired to the corresponding UdonSharpBehaviour method.
+        [UsedImplicitly] public static bool SharpFix__SendCustomEventDelayedSeconds(UdonSharpBehaviour __instance, string eventName, float delaySeconds, EventTiming eventTiming)
         {
-            var toPatch = typeof(UdonBehaviour);
-            var ourType = typeof(MyrddinKillswitch);
-            foreach (var from in thingsToPatch)
+            Debug.Log($"{__instance.name} is being sent custom event {eventName}, delayed by {delaySeconds} seconds (EVENT TIMING NOT IMPLEMENTED: {eventTiming})");
+            MyrddinCoroutineRunner.CreateForSeconds(__instance, eventName, delaySeconds, eventTiming);
+            return true;
+        }
+        [UsedImplicitly] public static bool SharpFix__SendCustomEventDelayedFrames(UdonSharpBehaviour __instance, string eventName, int delayFrames, EventTiming eventTiming)
+        {
+            Debug.Log($"{__instance.name} is being sent custom event {eventName}, delayed by {delayFrames} frames (EVENT TIMING NOT IMPLEMENTED: {eventTiming})");
+            MyrddinCoroutineRunner.CreateForFrames(__instance, eventName, delayFrames, eventTiming);
+            return true;
+        }
+        // ReSharper restore InconsistentNaming
+
+        private static void PatchThese(MethodInfo[] ourPatches, string prefix, Type typeToPatch)
+        {
+            foreach (var ourPatch in ourPatches)
             {
-                DoPatch(toPatch.GetMethod(from), new HarmonyMethod(ourType.GetMethod($"{ReflectionPrefix}{from}")));
+                try
+                {
+                    DoPatch(typeToPatch.GetMethod(ourPatch.Name.Substring(prefix.Length), ourPatch.GetParameters().Select(info => info.ParameterType).Skip(1).ToArray()), new HarmonyMethod(ourPatch));
+                }
+                catch (Exception e)
+                {
+                    Debug.LogError($"(MyrddinKillswitch) Failed to patch {ourPatch}");
+                    throw;
+                }
             }
         }
         
