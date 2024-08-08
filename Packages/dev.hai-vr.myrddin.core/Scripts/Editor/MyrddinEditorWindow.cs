@@ -41,6 +41,7 @@ namespace Hai.Myrddin.Core.Editor
         {
             _scrollPos = EditorGUILayout.BeginScrollView(_scrollPos, GUILayout.Height(position.height - EditorGUIUtility.singleLineHeight));
 
+            EditorGUI.BeginDisabledGroup(Application.isPlaying);
             var isEnabled = MyrddinKillswitch.UseKillswitch;
             if (ColoredBackground(isEnabled, Color.red, () => GUILayout.Button(isEnabled ? "Killswitch is ON" : "Killswitch is OFF")))
             {
@@ -61,6 +62,7 @@ namespace Hai.Myrddin.Core.Editor
                     XRGeneralSettings.Instance.Manager.TrySetLoaders(loaders);
                 }
             }
+            EditorGUI.EndDisabledGroup();
 
             if (isEnabled)
             {
