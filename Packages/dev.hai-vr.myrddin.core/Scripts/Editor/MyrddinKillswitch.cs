@@ -132,8 +132,8 @@ namespace Hai.Myrddin.Core.Editor
 
         private static void ShowMessageThatUseAttachedStationIsUnsupported(VRCPlayerApi caller)
         {
-            Debug.Log("(MyrddinKillswitch) VRCPlayerApi.UseAttachedStation was called. This is not implemented.");
-            // TODO: Add message to ask calling MyrddinHelpers.UseStation(this) instead.
+            Debug.LogError("(MyrddinKillswitch) UNSUPPORTED: VRCPlayerApi.UseAttachedStation() was called. For complicated reasons, this is not implemented.");
+            Debug.LogError("(MyrddinKillswitch) Please use `#if !COMPILER_UDONSHARP MyrddinHelpers.UseStation(this); #endif` instead.");
         }
 
         private static void PatchClientSimStationEvents()
@@ -301,12 +301,13 @@ namespace Hai.Myrddin.Core.Editor
         [UsedImplicitly] public static bool __SendCustomEventDelayedSeconds(UdonBehaviour __instance, string eventName, float delaySeconds, EventTiming eventTiming) => RunSharp(__instance, sharp =>
         {
             // TODO: Event timing is not implemented within the coroutine runner
-            Debug.Log($"{__instance.name} is being sent custom event {eventName}, delayed by {delaySeconds} seconds (EVENT TIMING NOT IMPLEMENTED: {eventTiming})");
+            DoLogVerbose($"{__instance.name} is being sent custom event {eventName}, delayed by {delaySeconds} seconds (EVENT TIMING NOT IMPLEMENTED: {eventTiming})");
             MyrddinCoroutineRunner.CreateForSeconds(sharp, eventName, delaySeconds, eventTiming);
         });
+
         [UsedImplicitly] public static bool __SendCustomEventDelayedFrames(UdonBehaviour __instance, string eventName, int delayFrames, EventTiming eventTiming) => RunSharp(__instance, sharp =>
         {
-            Debug.Log($"{__instance.name} is being sent custom event {eventName}, delayed by {delayFrames} frames (EVENT TIMING NOT IMPLEMENTED: {eventTiming})");
+            DoLogVerbose($"{__instance.name} is being sent custom event {eventName}, delayed by {delayFrames} frames (EVENT TIMING NOT IMPLEMENTED: {eventTiming})");
             MyrddinCoroutineRunner.CreateForFrames(sharp, eventName, delayFrames, eventTiming);
         });
         [UsedImplicitly] public static bool __Interact(UdonBehaviour __instance) => RunSharp(__instance, sharp => sharp.Interact());
@@ -529,6 +530,11 @@ I hate that it’s an asset"
                 // TODO: MyrddinPostLateUpdateExecutor requires a UdonBehaviour to exist. This may cause issues if UdonSharpBehaviours are instantiated directly?
                 plu.gameObject.AddComponent<MyrddinPostLateUpdateExecutor>();
             }
+        }
+
+        private static void DoLogVerbose(string msg)
+        {
+            // Debug.Log(msg);
         }
     }
 }

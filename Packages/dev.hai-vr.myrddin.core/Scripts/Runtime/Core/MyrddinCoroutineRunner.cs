@@ -40,7 +40,7 @@ namespace Hai.Myrddin.Core.Runtime
         private IEnumerator Runner(IEnumerator enumerator, string eventName)
         {
             yield return enumerator;
-            Debug.Log($"(MyrddinCoroutineRunner) Temporary runner complete for {eventName}.");
+            DoLogVerbose($"(MyrddinCoroutineRunner) Temporary runner complete for {eventName}.");
             Object.Destroy(this.gameObject);
         }
 
@@ -72,8 +72,13 @@ namespace Hai.Myrddin.Core.Runtime
             var method = _sharp.GetType().GetMethod(eventName);
             if (method == null) return;
             
-            Debug.Log($"(MyrddinCoroutineRunner) Invoking event {eventName} on {_sharp.name} ({_sharp.GetType().Name})");
+            DoLogVerbose($"(MyrddinCoroutineRunner) Invoking event {eventName} on {_sharp.name} ({_sharp.GetType().Name})");
             method.Invoke(_sharp, null);
+        }
+
+        private void DoLogVerbose(string msg)
+        {
+            // Debug.Log(s);
         }
     }
 }
