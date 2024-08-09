@@ -116,8 +116,21 @@ namespace Hai.Myrddin.Core.Editor
 
         private static void PatchEnteringStationsUsesExecutionContextMagic()
         {
-            // VRCPlayerApi.UseAttachedStation() is a zero-argument function that uses the Udon execution context to retrieve which UdonBehaviour is invoking it.
-            // There is no known way to get the instance of callers in the stack.
+            // During normal operation, VRCPlayerApi.UseAttachedStation() is a zero-argument function that uses the Udon execution context to retrieve which UdonBehaviour is invoking it.
+            // ClientSim gets away with this by asking the UdonManager for the `currentlyExecuting` behaviour (see ClientSimStationHelper.cs).
+            // In C#, getting the caller *instance* of a function is a completely foreign concept.
+            // AFAIK There is no known way to get the instance of callers in the stack.
+            // All alternatives I can think of are really expensive to implement.
+            //
+            // For now, show a message that VRCPlayerApi.UseAttachedStation() is unsupported.
+            // The sane way to tackle this is to replace VRCPlayerApi.UseAttachedStation() with the following:
+/*
+#if COMPILER_UDONSHARP
+            Networking.LocalPlayer.UseAttachedStation();
+#else
+            Hai.Myrddin.Core.Runtime.MyrddinHelpers.UseStation(this);
+#endif
+ */
             
             VRCPlayerApi._UseAttachedStation += ShowMessageThatUseAttachedStationIsUnsupported;
             MyrddinHelpers._stationFix += sharp =>
